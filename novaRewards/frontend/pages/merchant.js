@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import CampaignForm from "../components/CampaignForm";
 import IssueRewardForm from "../components/IssueRewardForm";
 import Navbar from "../components/Navbar";
 import api from "../lib/api";
+import { formatTokenAmount } from "../lib/formatting";
 
 function getCampaignStatus(c) {
   const now = new Date();
@@ -129,7 +131,13 @@ export default function MerchantDashboard() {
 
   return (
     <>
-      <Navbar />
+      <nav className="nav">
+        <span className="nav-brand">⭐ NovaRewards</span>
+        <div className="nav-links">
+          <Link href="/">Customer Portal</Link>
+          <Link href="/monitoring">Monitoring</Link>
+        </div>
+      </nav>
 
       <div className="container">
         <h1
@@ -240,7 +248,7 @@ export default function MerchantDashboard() {
                       color: "#7c3aed",
                     }}
                   >
-                    {parseFloat(totals.totalDistributed).toFixed(2)}
+                    {formatTokenAmount(totals.totalDistributed)}
                   </p>
                   <p style={{ color: "#94a3b8", fontSize: "0.8rem" }}>NOVA</p>
                 </div>
@@ -255,7 +263,7 @@ export default function MerchantDashboard() {
                       color: "#34d399",
                     }}
                   >
-                    {parseFloat(totals.totalRedeemed).toFixed(2)}
+                    {formatTokenAmount(totals.totalRedeemed)}
                   </p>
                   <p style={{ color: "#94a3b8", fontSize: "0.8rem" }}>NOVA</p>
                 </div>
@@ -377,7 +385,7 @@ export default function MerchantDashboard() {
                             return (
                               <tr key={c.id}>
                                 <td>{c.name}</td>
-                                <td>{c.reward_rate} NOVA/unit</td>
+                                <td>{formatTokenAmount(c.reward_rate)} NOVA/unit</td>
                                 <td>{c.start_date?.slice(0, 10)}</td>
                                 <td>{c.end_date?.slice(0, 10)}</td>
                                 <td>

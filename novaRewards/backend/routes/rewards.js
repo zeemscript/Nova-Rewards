@@ -1,14 +1,15 @@
-const logger = require('./lib/logger');
+const logger = require('../lib/logger');
 const express = require('express');
 const router = express.Router();
 const { getCampaignById, getActiveCampaign } = require('../db/campaignRepository');
 const { distributeRewards } = require('../../blockchain/sendRewards');
+const { isValidStellarAddress } = require('../../blockchain/stellarService');
+const { log } = require('../monitoring/eventsLogger');
 const { authenticateMerchant } = require('../middleware/authenticateMerchant');
-const { verifyTrustline } = require('../../blockchain/trustline');
 const { slidingRewards } = require('../middleware/rateLimiter');
-const { enqueueRewardIssuance } = require('../services/rewardIssuanceService');
-const { checkRewardFarming, recordRewardClaim } = require('../middleware/abuseDetection');
+const { checkRewardFarming } = require('../middleware/abuseDetection');
 const { validateIssueReward, validateDistributeReward } = require('../dtos/middleware');
+const { idempotency } = require('../middleware/idempotency');
 
 /**
  * @openapi
@@ -36,7 +37,7 @@ const { validateIssueReward, validateDistributeReward } = require('../dtos/middl
  *       200: { description: Duplicate — already processed }
  *       400: { description: Validation error }
  */
-router.post('/issue', slidingRewards, authenticateMerchant, validateIssueReward, async (req, res, next) => {
+router.post('/issue', authenticateMerchant, slidingRewards, validateIssueReward, async (req, res, next) => {
   try {
     const { idempotencyKey, walletAddress, amount, campaignId, userId } = req.body;
     if (!idempotencyKey || !walletAddress || !amount || !campaignId) {
@@ -117,7 +118,7 @@ router.post('/issue', slidingRewards, authenticateMerchant, validateIssueReward,
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
-router.post('/distribute', slidingRewards, authenticateMerchant, checkRewardFarming, validateDistributeReward, async (req, res, next) => {
+router.post('/distribute', authenticateMerchant, slidingRewards, checkRewardFarming, idempotency, validateDistributeReward, async (req, res, next) => {
   try {
     const { walletAddress, customerWallet, amount, campaignId } = req.body;
     const recipientWallet = walletAddress || customerWallet;
@@ -181,9 +182,16 @@ router.post('/distribute', slidingRewards, authenticateMerchant, checkRewardFarm
       campaignId,
     });
 
-    await recordRewardClaim(recipientWallet, campaignId);
+    // Log domain event
+    log.rewardDistributed({
+      txHash,
+      amount,
+      customerWallet,
+      merchantId: req.merchant.id,
+      campaignId: campaign.id,
+    });
 
-    res.json({ success: true, txHash: result.txHash, transaction: result.tx });
+    res.json({ success: true, txHash, transaction: tx });
   } catch (err) {
     if (err.code === 'no_trustline') {
       return res.status(400).json({
@@ -192,13 +200,18 @@ router.post('/distribute', slidingRewards, authenticateMerchant, checkRewardFarm
         message: err.message,
       });
     }
-    
-    logger.error('Error distributing rewards:', err);
-    res.status(500).json({
-      success: false,
-      error: 'internal_server_error',
-      message: err.message || 'Failed to distribute rewards',
-    });
+    if (err.code === 'insufficient_balance') {
+      return res.status(400).json({
+        success: false,
+        error: 'insufficient_balance',
+        message: err.message,
+      });
+    }
+    // Log blockchain / unhandled errors
+    if (err.code === 'invalid_address' || err.response?.title === 'Transaction Failed') {
+      log.blockchainError({ errorCode: err.code, message: err.message });
+    }
+    next(err);
   }
 });
 

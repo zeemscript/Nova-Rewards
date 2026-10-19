@@ -3,6 +3,10 @@ import { useRouter } from 'next/router';
 import { useEffect } from 'react';
 import Navbar from '../components/Navbar';
 
+export async function getServerSideProps() {
+  return { props: {} };
+}
+
 export default function Home() {
   const { publicKey, connect, loading, error, freighterInstalled, disconnect } = useWallet();
   const router = useRouter();
@@ -18,17 +22,22 @@ export default function Home() {
 
   return (
     <>
-      <Navbar>
-        {publicKey && (
-          <button
-            className="btn btn-secondary"
-            onClick={handleDisconnect}
-            style={{ padding: "0.4rem 1rem" }}
-          >
-            Disconnect
-          </button>
-        )}
-      </Navbar>
+      <nav className="nav">
+        <span className="nav-brand">⭐ NovaRewards</span>
+        <div className="nav-links">
+          <a href="/merchant">Merchant Portal</a>
+          <a href="/monitoring">Monitoring</a>
+          {publicKey && (
+            <button
+              className="btn btn-secondary"
+              onClick={handleDisconnect}
+              style={{ padding: "0.4rem 1rem" }}
+            >
+              Disconnect
+            </button>
+          )}
+        </div>
+      </nav>
 
       <div className="container" style={{ textAlign: 'center', paddingTop: '5rem' }}>
         <h1 style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '1rem' }}>

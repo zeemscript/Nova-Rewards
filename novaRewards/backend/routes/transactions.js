@@ -1,19 +1,11 @@
 const logger = require('../lib/logger');
 const router = require('express').Router();
-const { authenticateMerchant } = require('../middleware/authenticateMerchant');
+const { server, NOVA, isValidStellarAddress } = require('../../blockchain/stellarService');
+const { recordTransaction, getTransactionsByMerchant, getMerchantTotals } = require('../db/transactionRepository');
+const { query } = require('../db/index');
+const { log } = require('../monitoring/eventsLogger');
 const { authenticateUser } = require('../middleware/authenticateUser');
-const { getMerchantTotals, getUserTransactionsCursor } = require('../db/transactionRepository');
-const {
-  recordTransaction,
-  getWalletHistory,
-  getUserHistory,
-  getMerchantHistory,
-  refundTransaction,
-  reconcileMerchantTransactions,
-  getMerchantTransactionReport,
-} = require('../services/transactionService');
- feat/define-constants
-const { MAX_PAGE_SIZE } = require('../config/constants');
+const { authenticateMerchant } = require('../middleware/authenticateMerchant');
 
 /**
  * POST /api/transactions/record
@@ -75,7 +67,24 @@ router.post('/record', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'tx_not_found', message: 'Transaction not found on Stellar network or Horizon is unavailable' });
     }
 
-    const tx = await recordTransaction({ txHash, txType, amount, fromWallet, toWallet, merchantId: merchantId || null, campaignId: campaignId || null, stellarLedger });
+    const tx = await recordTransaction({
+      txHash,
+      txType,
+      amount,
+      fromWallet,
+      toWallet,
+      merchantId: merchantId || null,
+      campaignId: campaignId || null,
+      stellarLedger,
+    });
+
+    // Log domain event for the appropriate transaction type
+    if (txType === 'redemption') {
+      log.rewardRedeemed({ txHash, amount, fromWallet, toWallet, merchantId });
+    } else if (txType === 'transfer') {
+      log.transferCompleted({ txHash, amount, fromWallet, toWallet });
+    }
+
     res.status(201).json({ success: true, data: tx });
   } catch (err) {
     if (err.code === '23505' || err.code === 'duplicate_transaction') {
@@ -117,8 +126,10 @@ router.post('/reconcile', authenticateMerchant, async (req, res, next) => {
   try {
     const reconciliation = await reconcileMerchantTransactions(req.merchant.id, req.body || {});
     res.json({ success: true, data: reconciliation });
- feat/define-constants
-    const { walletAddress } = req.params;
+  } catch (err) {
+    next(err);
+  }
+});
 
     if (!isValidStellarAddress(walletAddress)) {
       return res.status(400).json({
@@ -174,9 +185,6 @@ router.post('/reconcile', authenticateMerchant, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-
-  } catch (err) { next(err); }
- main
 });
 
 router.get('/user/history', async (req, res, next) => {
